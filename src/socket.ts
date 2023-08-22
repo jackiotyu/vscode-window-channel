@@ -1,62 +1,36 @@
-import * as net from 'net';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { PIPE_FILE, CHANNEL_ACTIVE, ChannelMessage } from './constants';
+import { exec } from 'child_process';
 import output from './output';
 
-export function registerChannel(context: vscode.ExtensionContext) {
-    let existChannel = context.globalState.get(CHANNEL_ACTIVE);
-    if (existChannel) {
-        return;
-    }
+export function registerChannel() {
+    let fileExist = false;
     try {
-        if(fs.statSync(PIPE_FILE).isFile()) {return;}
+        if (fs.statSync(PIPE_FILE)) {
+            fileExist = true;
+            return Promise.resolve();
+        }
     } catch {}
-    // try {
-    //     fs.unlinkSync(PIPE_FILE);
-    // } catch (error) {}
+    if (fileExist) {
+        return Promise.resolve();
+    }
 
-    let channelPids = [process.pid];
-    let connections: net.Socket[] = [];
-    const server = net.createServer((connection) => {
-        console.log('socket connected.');
-        connection.on('close', () => console.log('disconnected.'));
-        connection.on('data', (data) => {
-            let message: ChannelMessage | void = undefined;
-            try {
-                message = JSON.parse(data.toString());
-            } catch {}
-
-            if (!message) {
-                return;
-            }
-            output.appendLine(`server receive: ${message.pid}, data: ${message.data}`);
-            // connection.write(data);
-            // 广播事件
-            output.appendLine(`sockets ${connections.length}`);
-            connections.forEach(socket => {
-                try {
-                    socket.write(data);
-                } catch {}
-            });
-            // console.log(`send: ${data}`);
-            output.appendLine(`channelPids: ${channelPids.toString()}`);
+    const scriptPath = path.resolve(__dirname, 'socketSingleton.js');
+    return new Promise((resolve, reject) => {
+        let childProcess = exec(`node ${scriptPath}`, (error, stdout, stderr) => {
+            if(error) {
+                reject(error);
+                return output.appendLine('server process error: ' + error.message);
+            };
+            output.appendLine('server stdout:' + stdout);
+            output.appendLine('server stderr:' + stderr);
+            resolve(stdout);
         });
-        connection.on('error', (err) => console.error(err.message));
+        childProcess.stdout?.pipe(process.stdout);
+        childProcess.stderr?.pipe(process.stderr);
+        setTimeout(resolve, 300);
     });
-    server.on('connection', (socket) => {
-        connections.push(socket);
-    });
-    server.listen(PIPE_FILE);
-    console.log(server.address(), 'address');
-    context.globalState.update(CHANNEL_ACTIVE, true);
-    context.subscriptions.push({
-        dispose() {
-            server.close();
-            context.globalState.update(CHANNEL_ACTIVE, false);
-            try {
-                fs.unlinkSync(PIPE_FILE);
-            } catch (error) {}
-        },
-    });
+
 }

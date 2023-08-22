@@ -8,30 +8,40 @@ interface IChannelClient {
 }
 
 export class ChannelClient extends EventEmitter implements IChannelClient {
-    private client: net.Socket;
+    private client?: net.Socket;
     constructor() {
         super({
             captureRejections: true,
         });
-        this.client = net.connect(PIPE_FILE);
         this.setMaxListeners(10);
-        this.client.on('connect', () => {
-            console.log('connected.');
-            this.emit('connect');
-        });
-        this.client.on('end', () => {
-            console.log('disconnected');
-            this.emit('disconnect');
-        });
-        this.client.on('data', (data) => {
-            this.emit('message', data);
-        });
-        this.client.on('error', (err) => {
-            console.error(err);
-            this.emit('err', err);
-        });
+        try {
+            this.client = net.connect(PIPE_FILE);
+            this.client.on('connect', () => {
+                console.log('connected.');
+                this.emit('connect');
+            });
+            this.client.on('end', () => {
+                console.log('disconnected');
+                this.emit('disconnect');
+            });
+            this.client.on('data', (data) => {
+                this.emit('message', data);
+            });
+            this.client.on('error', (err) => {
+                console.error(err);
+                this.emit('error', err);
+            });
+            this.client.on('close', (hadError) => {
+                this.emit('close', hadError);
+            });
+        } catch (error) {
+            this.emit('error', error);
+        }
     }
     send(msg: ChannelMessage) {
-        this.client.write(JSON.stringify(msg));
+        this.client?.write(JSON.stringify(msg));
+    }
+    close() {
+        this.client?.destroy();
     }
 }
